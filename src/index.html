@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Reader</title>
+<style>
+  :root {
+    --bg: transparent;
+    --card: rgba(255,255,255,0.7);
+    --border: rgba(0,0,0,0.1);
+    --text: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --accent: #007aff;
+    --accent-text: #fff;
+    --danger: #ff3b30;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --card: rgba(40,40,40,0.6);
+      --border: rgba(255,255,255,0.12);
+      --text: #f5f5f7;
+      --text-secondary: #9a9a9e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  #titlebar-spacer { height: 28px; flex-shrink: 0; }
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0 20px 20px;
+    gap: 12px;
+    min-height: 0;
+    -webkit-app-region: no-drag;
+  }
+  .row { display: flex; gap: 8px; align-items: center; }
+  button {
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.06); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.danger { color: var(--danger); }
+  input[type=text], select {
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+  }
+  input[type=text] { flex: 1; }
+  #drop-zone {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    position: relative;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  #drop-zone.dragover { border-color: var(--accent); background: rgba(0,122,255,0.06); }
+  #text-input {
+    flex: 1;
+    width: 100%;
+    resize: none;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 14px;
+    user-select: text;
+  }
+  #text-input::placeholder { color: var(--text-secondary); }
+  #meta-row { font-size: 12px; color: var(--text-secondary); display: flex; justify-content: space-between; }
+  #controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  #speed-label { font-size: 12px; color: var(--text-secondary); width: 46px; }
+  input[type=range] { flex-shrink: 0; }
+  .spacer { flex: 1; }
+  #status {
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-height: 16px;
+  }
+  #status.error { color: var(--danger); }
+  #progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    display: none;
+  }
+  #progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
+</style>
+</head>
+<body>
+  <div id="titlebar-spacer"></div>
+  <div id="main">
+    <div class="row">
+      <button id="btn-open">Open Document…</button>
+      <input type="text" id="url-input" placeholder="Paste an article URL…">
+      <button id="btn-load-url">Load</button>
+    </div>
+
+    <div id="drop-zone">
+      <textarea id="text-input" placeholder="Paste text, open a document (PDF, EPUB, DOCX, Markdown, TXT), or load a URL above…"></textarea>
+    </div>
+
+    <div id="meta-row">
+      <span id="char-count"></span>
+      <span id="read-time"></span>
+    </div>
+
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+    <div id="status"></div>
+
+    <div id="controls">
+      <select id="voice-select"></select>
+      <span id="speed-label">1.0×</span>
+      <input type="range" id="speed-range" min="0.5" max="2" step="0.1" value="1">
+      <div class="spacer"></div>
+      <button id="btn-play" class="primary">▶ Read Aloud</button>
+      <button id="btn-stop" class="danger" style="display:none">■ Stop</button>
+      <button id="btn-export" disabled>Save Audio…</button>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
