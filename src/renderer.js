@@ -142,7 +142,7 @@ function escapeHtml(s) {
 // highlights.
 function setReadingMode(active) {
   textInput.style.display = active ? 'none' : '';
-  textDisplay.style.display = active ? '' : 'none';
+  textDisplay.style.display = active ? 'block' : 'none';
   if (active) {
     textDisplay.textContent = textInput.value;
   } else {
