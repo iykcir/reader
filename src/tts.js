@@ -12,7 +12,13 @@ let ttsPromise = null;
 async function getTTS(cacheDir, onProgress) {
   if (!ttsPromise) {
     ttsPromise = (async () => {
-      const { KokoroTTS, env } = require('kokoro-js');
+      const { KokoroTTS } = require('kokoro-js');
+      // kokoro-js re-exports its own `env`, but that binding is a distinct
+      // object from @huggingface/transformers' actual singleton (an ESM/CJS
+      // dual-instance split) — mutating it here is a silent no-op, so the
+      // model always fell back to caching inside node_modules instead of
+      // userData. Requiring transformers directly gets the real instance.
+      const { env } = require('@huggingface/transformers');
       env.cacheDir = cacheDir;
       return KokoroTTS.from_pretrained(MODEL_ID, {
         dtype: 'q8',
