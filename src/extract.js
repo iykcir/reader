@@ -39,10 +39,35 @@ async function extractPdf(filePath) {
   }
 }
 
+// Uses convertToHtml (rather than extractRawText) so heading paragraph
+// styles (Heading 1-6) survive as h1-h6 tags — that structure becomes the
+// in-app outline, since Word's actual TOC is a computed field that mammoth
+// can't parse and drops entirely. Offsets are computed while building the
+// text so they stay exact instead of drifting after a later whitespace pass.
 async function extractDocx(filePath) {
   const mammoth = require('mammoth');
-  const result = await mammoth.extractRawText({ path: filePath });
-  return { title: path.basename(filePath, path.extname(filePath)), text: collapseWhitespace(result.value) };
+  const { JSDOM } = require('jsdom');
+  const result = await mammoth.convertToHtml({ path: filePath });
+  const body = new JSDOM(`<body>${result.value}</body>`).window.document.body;
+
+  const parts = [];
+  const headings = [];
+  let offset = 0;
+
+  for (const el of body.children) {
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const headingLevel = /^H([1-6])$/.exec(el.tagName);
+    if (headingLevel) headings.push({ level: Number(headingLevel[1]), title: text, offset });
+    parts.push(text);
+    offset += text.length + 2; // matches the '\n\n' joiner below
+  }
+
+  return {
+    title: path.basename(filePath, path.extname(filePath)),
+    text: parts.join('\n\n'),
+    headings,
+  };
 }
 
 async function extractEpub(filePath) {

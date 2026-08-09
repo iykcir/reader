@@ -95,6 +95,54 @@
     user-select: text;
   }
   #text-input::placeholder { color: var(--text-secondary); }
+  #text-display {
+    display: none;
+    flex: 1;
+    width: 100%;
+    overflow-y: auto;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 14px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    user-select: text;
+  }
+  #text-display mark {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-radius: 3px;
+    padding: 0 1px;
+  }
+  #btn-outline { position: relative; }
+  #outline-panel {
+    display: none;
+    position: absolute;
+    top: 36px;
+    left: 0;
+    min-width: 220px;
+    max-width: 360px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--card);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    z-index: 10;
+    padding: 4px;
+  }
+  .outline-item {
+    font-size: 13px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .outline-item:hover { background: var(--accent); color: var(--accent-text); }
   #meta-row { font-size: 12px; color: var(--text-secondary); display: flex; justify-content: space-between; }
   #controls {
     display: flex;
@@ -124,14 +172,17 @@
 <body>
   <div id="titlebar-spacer"></div>
   <div id="main">
-    <div class="row">
+    <div class="row" style="position: relative;">
       <button id="btn-open">Open Document…</button>
+      <button id="btn-outline" style="display:none">Outline ▾</button>
+      <div id="outline-panel"></div>
       <input type="text" id="url-input" placeholder="Paste an article URL…">
       <button id="btn-load-url">Load</button>
     </div>
 
     <div id="drop-zone">
       <textarea id="text-input" placeholder="Paste text, open a document (PDF, EPUB, DOCX, Markdown, TXT), or load a URL above…"></textarea>
+      <div id="text-display"></div>
     </div>
 
     <div id="meta-row">

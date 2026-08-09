@@ -1,8 +1,11 @@
 /* global api */
 
 const textInput   = document.getElementById('text-input');
+const textDisplay  = document.getElementById('text-display');
 const dropZone     = document.getElementById('drop-zone');
 const btnOpen      = document.getElementById('btn-open');
+const btnOutline   = document.getElementById('btn-outline');
+const outlinePanel = document.getElementById('outline-panel');
 const urlInput     = document.getElementById('url-input');
 const btnLoadUrl   = document.getElementById('btn-load-url');
 const charCount    = document.getElementById('char-count');
@@ -34,10 +37,12 @@ const VOICES = [
 let state = 'idle'; // idle | loading | generating | playing | paused
 let currentJobId = null;
 let audioEl = new Audio();
-let queue = new Map(); // index -> path
+let queue = new Map(); // index -> { path, text }
 let nextIndexToPlay = 0;
 let generationDone = false;
 let hasPlayableAudio = false;
+let headings = [];
+let highlightCursor = 0;
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -76,13 +81,89 @@ function updateMeta() {
     readTime.textContent = '';
   }
 }
-textInput.addEventListener('input', updateMeta);
+textInput.addEventListener('input', () => {
+  updateMeta();
+  // Edits invalidate heading offsets, so drop the outline rather than risk
+  // jumping to the wrong spot.
+  if (headings.length) setHeadings([]);
+});
 
 // ── Status helpers ───────────────────────────────────────────────────────────
 
 function setStatus(msg, isError) {
   statusEl.textContent = msg || '';
   statusEl.classList.toggle('error', !!isError);
+}
+
+// ── Outline ──────────────────────────────────────────────────────────────────
+
+function setHeadings(list) {
+  headings = list;
+  btnOutline.style.display = headings.length ? '' : 'none';
+  outlinePanel.style.display = 'none';
+  outlinePanel.innerHTML = '';
+  for (const h of headings) {
+    const item = document.createElement('div');
+    item.className = 'outline-item';
+    item.textContent = h.title;
+    item.style.paddingLeft = `${8 + (h.level - 1) * 14}px`;
+    item.addEventListener('click', () => {
+      outlinePanel.style.display = 'none';
+      jumpToHeading(h.offset);
+    });
+    outlinePanel.appendChild(item);
+  }
+}
+
+btnOutline.addEventListener('click', () => {
+  outlinePanel.style.display = outlinePanel.style.display === 'none' ? '' : 'none';
+});
+document.addEventListener('click', (e) => {
+  if (outlinePanel.style.display !== 'none' && e.target !== btnOutline && !outlinePanel.contains(e.target)) {
+    outlinePanel.style.display = 'none';
+  }
+});
+
+async function jumpToHeading(offset) {
+  audioEl.pause();
+  audioEl.removeAttribute('src');
+  if (state !== 'idle') await api.stopSpeech();
+  startPlayback(offset);
+}
+
+// ── Read-along highlighting ──────────────────────────────────────────────────
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Swaps the editable textarea for a read-only mirror so the currently-playing
+// sentence can be wrapped in a <mark> — a plain <textarea> can't render inline
+// highlights.
+function setReadingMode(active) {
+  textInput.style.display = active ? 'none' : '';
+  textDisplay.style.display = active ? '' : 'none';
+  if (active) {
+    textDisplay.textContent = textInput.value;
+  } else {
+    textDisplay.innerHTML = '';
+  }
+}
+
+function highlightChunk(chunkText) {
+  const trimmed = chunkText.trim();
+  if (!trimmed) return;
+  const text = textInput.value;
+  let idx = text.indexOf(trimmed, highlightCursor);
+  if (idx === -1) idx = text.indexOf(trimmed);
+  if (idx === -1) return; // couldn't locate this chunk verbatim; leave prior highlight in place
+  highlightCursor = idx + trimmed.length;
+
+  textDisplay.innerHTML =
+    escapeHtml(text.slice(0, idx)) +
+    '<mark>' + escapeHtml(text.slice(idx, idx + trimmed.length)) + '</mark>' +
+    escapeHtml(text.slice(idx + trimmed.length));
+  textDisplay.querySelector('mark')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
 // ── Loading documents ────────────────────────────────────────────────────────
@@ -98,6 +179,7 @@ async function loadFile(filePath) {
     }
     textInput.value = result.text;
     updateMeta();
+    setHeadings(result.headings || []);
     setStatus(`Loaded "${result.title}".`);
   } catch (err) {
     setStatus(err.message || 'Failed to read that document.', true);
@@ -122,6 +204,7 @@ async function loadUrl() {
     const result = await api.extractUrl(url);
     textInput.value = result.text;
     updateMeta();
+    setHeadings([]);
     setStatus(`Loaded "${result.title}".`);
   } catch (err) {
     setStatus(err.message || 'Failed to load that URL.', true);
@@ -175,12 +258,14 @@ function resetJobState() {
   generationDone = false;
 }
 
-async function startPlayback() {
-  const text = textInput.value.trim();
-  if (!text) return;
+async function startPlayback(offset = 0) {
+  const text = textInput.value.slice(offset);
+  if (!text.trim()) return;
 
   resetJobState();
+  highlightCursor = offset;
   hasPlayableAudio = false;
+  setReadingMode(true);
   state = 'loading';
   updateControlsUI();
   setStatus('Preparing voice… (first run downloads the model, ~90MB)');
@@ -196,13 +281,14 @@ async function startPlayback() {
 }
 
 function playChunk(index) {
-  const path = queue.get(index);
-  if (!path) return;
-  audioEl.src = api.toFileUrl(path);
+  const entry = queue.get(index);
+  if (!entry) return;
+  audioEl.src = api.toFileUrl(entry.path);
   audioEl.playbackRate = 1; // speed is baked into generation via the `speed` option
   audioEl.play();
   state = 'playing';
   updateControlsUI();
+  highlightChunk(entry.text);
 }
 
 audioEl.addEventListener('ended', () => {
@@ -211,6 +297,7 @@ audioEl.addEventListener('ended', () => {
     playChunk(nextIndexToPlay);
   } else if (generationDone) {
     state = 'idle';
+    setReadingMode(false);
     setStatus('Done.');
     updateControlsUI();
   } else {
@@ -218,9 +305,9 @@ audioEl.addEventListener('ended', () => {
   }
 });
 
-api.onSpeechChunk(({ jobId, index, path }) => {
+api.onSpeechChunk(({ jobId, index, path, text }) => {
   if (jobId !== currentJobId) return;
-  queue.set(index, path);
+  queue.set(index, { path, text });
   hasPlayableAudio = true;
   if (index === nextIndexToPlay && (state === 'generating' || state === 'playing')) {
     if (state === 'generating') setStatus('');
@@ -234,6 +321,7 @@ api.onSpeechDone(({ jobId }) => {
   generationDone = true;
   if (!queue.has(nextIndexToPlay) && state !== 'playing') {
     state = 'idle';
+    setReadingMode(false);
     updateControlsUI();
   }
 });
@@ -242,6 +330,7 @@ api.onSpeechError(({ jobId, message }) => {
   if (jobId !== currentJobId) return;
   setStatus(message, true);
   state = 'idle';
+  setReadingMode(false);
   updateControlsUI();
 });
 
@@ -256,6 +345,7 @@ btnStop.addEventListener('click', async () => {
   audioEl.removeAttribute('src');
   await api.stopSpeech();
   state = 'idle';
+  setReadingMode(false);
   setStatus('');
   updateControlsUI();
 });
