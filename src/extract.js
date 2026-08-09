@@ -39,6 +39,15 @@ async function extractPdf(filePath) {
   }
 }
 
+// mammoth can't parse Word's TOC field (it's a computed field, not real
+// content), but it doesn't discard it either — the field's cached result
+// text survives as ordinary paragraphs styled "TOC 1".."TOC 9". Left alone,
+// that shows up as a garbled, page-numbered duplicate of the outline right
+// in the middle of the extracted text (and would get read aloud). Style IDs
+// ("TOC1".."TOC9") are used rather than style *names* ("toc 1") since IDs
+// stay stable across Word's localized UIs while names can be translated.
+const TOC_STYLE_MAP = Array.from({ length: 9 }, (_, i) => `p.TOC${i + 1} => p.mammoth-toc:fresh`);
+
 // Uses convertToHtml (rather than extractRawText) so heading paragraph
 // styles (Heading 1-6) survive as h1-h6 tags — that structure becomes the
 // in-app outline, since Word's actual TOC is a computed field that mammoth
@@ -47,7 +56,7 @@ async function extractPdf(filePath) {
 async function extractDocx(filePath) {
   const mammoth = require('mammoth');
   const { JSDOM } = require('jsdom');
-  const result = await mammoth.convertToHtml({ path: filePath });
+  const result = await mammoth.convertToHtml({ path: filePath }, { styleMap: TOC_STYLE_MAP });
   const body = new JSDOM(`<body>${result.value}</body>`).window.document.body;
 
   const parts = [];
@@ -55,6 +64,7 @@ async function extractDocx(filePath) {
   let offset = 0;
 
   for (const el of body.children) {
+    if (el.classList.contains('mammoth-toc')) continue;
     const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
     if (!text) continue;
     const headingLevel = /^H([1-6])$/.exec(el.tagName);
