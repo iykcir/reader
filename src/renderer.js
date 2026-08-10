@@ -116,7 +116,10 @@ function setHeadings(list) {
 }
 
 btnOutline.addEventListener('click', () => {
-  outlinePanel.style.display = outlinePanel.style.display === 'none' ? '' : 'none';
+  // '' falls back to the stylesheet's own display:none on #outline-panel
+  // rather than revealing it — same class of bug fixed for #text-display
+  // in 3f555ff. Must set an explicit visible value here.
+  outlinePanel.style.display = outlinePanel.style.display === 'none' ? 'block' : 'none';
 });
 document.addEventListener('click', (e) => {
   if (outlinePanel.style.display !== 'none' && e.target !== btnOutline && !outlinePanel.contains(e.target)) {
@@ -238,7 +241,9 @@ function updateControlsUI() {
     btnPlay.textContent = 'Loading…';
     btnPlay.disabled = true;
     btnStop.style.display = '';
-    progressBar.style.display = state === 'loading' ? '' : 'none';
+    // '' would fall back to the stylesheet's display:none on #progress-bar
+    // instead of revealing it — same class of bug as 3f555ff.
+    progressBar.style.display = state === 'loading' ? 'block' : 'none';
   } else if (state === 'playing') {
     btnPlay.textContent = '⏸ Pause';
     btnPlay.disabled = false;
@@ -368,7 +373,7 @@ btnExport.addEventListener('click', async () => {
 api.onModelDownloadProgress((p) => {
   if (state !== 'loading') return;
   if (p && p.status === 'progress' && typeof p.progress === 'number') {
-    progressBar.style.display = '';
+    progressBar.style.display = 'block';
     progressFill.style.width = `${Math.round(p.progress)}%`;
     setStatus(`Downloading voice model… ${Math.round(p.progress)}%`);
   }
