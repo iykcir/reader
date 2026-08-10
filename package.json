@@ -1,6 +1,6 @@
 {
   "name": "reader",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A macOS desktop app that reads text, documents, and web articles aloud using free, local, natural-sounding voices (Kokoro TTS).",
   "main": "src/main.js",
   "scripts": {
