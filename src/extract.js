@@ -48,6 +48,12 @@ async function extractPdf(filePath) {
 // stay stable across Word's localized UIs while names can be translated.
 const TOC_STYLE_MAP = Array.from({ length: 9 }, (_, i) => `p.TOC${i + 1} => p.mammoth-toc:fresh`);
 
+// mammoth turns internal cross-reference links (a manual "jump to a chapter"
+// list, or the hyperlinks inside a real Word TOC field) into <a href="#id">,
+// and the bookmark each one points at into <a id="id">. Ids in this range are
+// mammoth's own machinery (footnotes/endnotes/comments), not user bookmarks.
+const RESERVED_ANCHOR_ID = /^(footnote|endnote|comment)(-ref)?-/;
+
 // Uses convertToHtml (rather than extractRawText) so heading paragraph
 // styles (Heading 1-6) survive as h1-h6 tags — that structure becomes the
 // in-app outline, since Word's actual TOC is a computed field that mammoth
@@ -61,10 +67,26 @@ async function extractDocx(filePath) {
 
   const parts = [];
   const headings = [];
+  const bookmarkOffsets = new Map(); // bookmark id -> offset of the paragraph it sits in
+  const linkCandidates = []; // { text, targetId }, resolved once every bookmark has been seen
   let offset = 0;
 
   for (const el of body.children) {
-    if (el.classList.contains('mammoth-toc')) continue;
+    const isToc = el.classList.contains('mammoth-toc');
+
+    // Scan for links/bookmarks even inside a skipped TOC paragraph — its
+    // cached text is garbled and gets dropped, but its hyperlinks still
+    // point at each chapter's bookmark and are worth keeping.
+    for (const a of el.querySelectorAll('a')) {
+      if (a.id && !RESERVED_ANCHOR_ID.test(a.id)) bookmarkOffsets.set(a.id, offset);
+      const href = a.getAttribute('href');
+      if (href && href.startsWith('#')) {
+        const linkText = (a.textContent || '').replace(/\s+/g, ' ').trim();
+        if (linkText) linkCandidates.push({ text: linkText, targetId: href.slice(1) });
+      }
+    }
+    if (isToc) continue;
+
     const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
     if (!text) continue;
     const headingLevel = /^H([1-6])$/.exec(el.tagName);
@@ -72,6 +94,19 @@ async function extractDocx(filePath) {
     parts.push(text);
     offset += text.length + 2; // matches the '\n\n' joiner below
   }
+
+  // A link whose target isn't already a detected heading — e.g. a manually
+  // built chapter list in a document that doesn't use Heading styles — still
+  // becomes a jump point, using the link's own text as its outline entry.
+  const headingOffsets = new Set(headings.map((h) => h.offset));
+  const seenTargets = new Set();
+  for (const link of linkCandidates) {
+    const targetOffset = bookmarkOffsets.get(link.targetId);
+    if (targetOffset === undefined || headingOffsets.has(targetOffset) || seenTargets.has(targetOffset)) continue;
+    seenTargets.add(targetOffset);
+    headings.push({ level: 1, title: link.text, offset: targetOffset });
+  }
+  headings.sort((a, b) => a.offset - b.offset);
 
   return {
     title: path.basename(filePath, path.extname(filePath)),
