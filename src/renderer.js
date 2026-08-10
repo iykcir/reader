@@ -335,7 +335,9 @@ api.onSpeechError(({ jobId, message }) => {
 });
 
 btnPlay.addEventListener('click', () => {
-  if (state === 'idle') startPlayback();
+  // Read Aloud starts from wherever the cursor sits in the textarea (or the
+  // start of a selection), not always from the top of the document.
+  if (state === 'idle') startPlayback(textInput.selectionStart || 0);
   else if (state === 'playing') { audioEl.pause(); state = 'paused'; updateControlsUI(); }
   else if (state === 'paused') { audioEl.play(); state = 'playing'; updateControlsUI(); }
 });
