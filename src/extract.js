@@ -27,13 +27,59 @@ function collapseWhitespace(text) {
   return text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// A PDF outline (bookmark) entry's `dest` isn't a page number — it's either a
+// named destination (a string that needs a separate lookup) or an explicit
+// destination array whose first element is a page *reference*, which only
+// resolves to a page index via the document itself. `getDestination` for
+// named destinations and `getPageIndex` both come from pdfjs-dist's document
+// proxy, which pdf-parse's PDFParse wrapper stores on `this.doc` — untyped
+// as `private` in its .d.ts, but that's a TypeScript-only annotation with no
+// runtime enforcement, so it's reachable as `parser.doc` after a load.
+async function resolvePdfDestToPage(dest, doc) {
+  try {
+    const explicitDest = typeof dest === 'string' ? await doc.getDestination(dest) : dest;
+    const ref = Array.isArray(explicitDest) ? explicitDest[0] : null;
+    if (!ref) return null;
+    return (await doc.getPageIndex(ref)) + 1; // pdf.js page indices are 0-based
+  } catch {
+    return null; // some bookmarks point at actions (e.g. a URL) rather than a page
+  }
+}
+
+async function resolvePdfOutline(nodes, doc, pageOffsets, headings, level) {
+  for (const node of nodes) {
+    const title = (node.title || '').trim();
+    const pageNum = node.dest ? await resolvePdfDestToPage(node.dest, doc) : null;
+    if (title && pageNum !== null && pageOffsets.has(pageNum)) {
+      headings.push({ level, title, offset: pageOffsets.get(pageNum) });
+    }
+    if (node.items?.length) await resolvePdfOutline(node.items, doc, pageOffsets, headings, level + 1);
+  }
+}
+
 async function extractPdf(filePath) {
   const { PDFParse } = require('pdf-parse');
   const data = fs.readFileSync(filePath);
   const parser = new PDFParse({ data });
   try {
-    const result = await parser.getText();
-    return { title: path.basename(filePath, path.extname(filePath)), text: collapseWhitespace(result.text) };
+    const textResult = await parser.getText();
+
+    const parts = [];
+    const pageOffsets = new Map(); // 1-based page number -> offset of that page's text
+    let offset = 0;
+    for (const page of textResult.pages) {
+      const text = collapseWhitespace(page.text);
+      if (!text) continue;
+      pageOffsets.set(page.num, offset);
+      parts.push(text);
+      offset += text.length + 2; // matches the '\n\n' joiner below
+    }
+
+    const headings = [];
+    const info = await parser.getInfo();
+    if (info.outline?.length) await resolvePdfOutline(info.outline, parser.doc, pageOffsets, headings, 1);
+
+    return { title: path.basename(filePath, path.extname(filePath)), text: parts.join('\n\n'), headings };
   } finally {
     await parser.destroy();
   }
