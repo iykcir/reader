@@ -180,11 +180,41 @@ ipcMain.handle('set-settings', (_, settings) => {
 let currentJob = null; // { id, stopped, chunks: [{text, wav, samples, sampleRate}], tmpDir }
 let ttsWorker = null;
 
+// A single chunk (one sentence/clause, as split by kokoro-js) is normally
+// synthesized in a second or two. But some content -- dense citation lists
+// with long unbroken URLs are the reliable trigger -- can make the splitter
+// hand the model one pathologically expensive chunk, which then runs for
+// hours pegging a CPU core with no error and no output. Worse, 'stop' is only
+// checked *between* chunks (see tts-worker.js), so it can't interrupt one
+// already in flight, and the inference itself is synchronous native code
+// that can't be cancelled from JS -- the only way to actually reclaim it is
+// to kill the whole worker thread. This watchdog is what notices a chunk has
+// stalled and does that, instead of hanging forever.
+const CHUNK_TIMEOUT_MS = 45000;
+let watchdog = null;
+
+function armWatchdog(jobId) {
+  clearTimeout(watchdog);
+  watchdog = setTimeout(() => {
+    if (!currentJob || currentJob.id !== jobId || currentJob.stopped) return;
+    currentJob.stopped = true;
+    ttsWorker?.terminate();
+    ttsWorker = null;
+    mainWindow?.webContents.send('speech-error', {
+      jobId,
+      message: 'This section is taking unusually long to read aloud (often caused by a dense citation, URL, or reference list) and was stopped. Try starting from a different part of the document.',
+    });
+    cleanupJob(currentJob);
+    currentJob = null;
+  }, CHUNK_TIMEOUT_MS);
+}
+
 function getTtsWorker() {
   if (!ttsWorker) {
     ttsWorker = new Worker(path.join(__dirname, 'tts-worker.js'));
     ttsWorker.on('message', handleWorkerMessage);
     ttsWorker.on('error', (err) => {
+      clearTimeout(watchdog);
       if (currentJob) {
         mainWindow?.webContents.send('speech-error', {
           jobId: currentJob.id,
@@ -201,15 +231,19 @@ function handleWorkerMessage(msg) {
   if (!job || msg.jobId !== job.id || job.stopped) return;
 
   if (msg.type === 'progress') {
+    armWatchdog(job.id);
     mainWindow?.webContents.send('model-download-progress', msg.progress);
   } else if (msg.type === 'chunk') {
+    armWatchdog(job.id);
     const chunkPath = path.join(job.tmpDir, `chunk-${msg.index}.wav`);
     fs.writeFileSync(chunkPath, msg.wav);
     job.chunks.push({ text: msg.text, wav: msg.wav, samples: msg.samples, sampleRate: msg.sampleRate });
     mainWindow?.webContents.send('speech-chunk', { jobId: job.id, index: msg.index, path: chunkPath, text: msg.text });
   } else if (msg.type === 'done') {
+    clearTimeout(watchdog);
     mainWindow?.webContents.send('speech-done', { jobId: job.id });
   } else if (msg.type === 'error') {
+    clearTimeout(watchdog);
     mainWindow?.webContents.send('speech-error', { jobId: job.id, message: msg.message });
   }
 }
@@ -238,11 +272,13 @@ ipcMain.handle('speak', async (_, text, options) => {
     options,
     cacheDir: path.join(app.getPath('userData'), 'models'),
   });
+  armWatchdog(id);
 
   return { jobId: id };
 });
 
 ipcMain.handle('stop-speech', () => {
+  clearTimeout(watchdog);
   if (currentJob) {
     currentJob.stopped = true;
     getTtsWorker().postMessage({ type: 'stop', jobId: currentJob.id });
