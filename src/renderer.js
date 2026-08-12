@@ -157,8 +157,14 @@ function highlightChunk(chunkText) {
   const trimmed = chunkText.trim();
   if (!trimmed) return;
   const text = textInput.value;
-  let idx = text.indexOf(trimmed, highlightCursor);
-  if (idx === -1) idx = text.indexOf(trimmed);
+  // tts.js normalizes single newlines (soft line-wraps) to spaces before
+  // synthesis, so a chunk spanning one comes back with a space where the
+  // original text has '\n'. That substitution is 1-for-1 (same length), so
+  // searching a matching-normalized haystack keeps offsets valid for
+  // slicing the *original* text below.
+  const searchText = text.replace(/\n(?!\n)/g, ' ');
+  let idx = searchText.indexOf(trimmed, highlightCursor);
+  if (idx === -1) idx = searchText.indexOf(trimmed);
   if (idx === -1) return; // couldn't locate this chunk verbatim; leave prior highlight in place
   highlightCursor = idx + trimmed.length;
 
