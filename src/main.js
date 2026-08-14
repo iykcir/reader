@@ -9,6 +9,21 @@ process.env.PATH = [...EXTRA_PATHS, ...(process.env.PATH || '').split(':').filte
 
 let mainWindow;
 
+// Each instance loads its own ~90MB model into memory and runs CPU-bound
+// ONNX inference; running two at once is wasteful and has been observed to
+// crash with heap corruption inside onnxruntime under the resulting memory
+// pressure. Only one instance may run at a time.
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0);
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
 function readConfig() {
